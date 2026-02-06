@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# YOLO model weights (large files)
+*.pt
+
+# Data files (generated at runtime)
+datos/
+snapshots/
+*.csv
+
+# OS
+Thumbs.db
+.DS_Store
