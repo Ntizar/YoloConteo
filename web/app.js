@@ -21,6 +21,18 @@ const state = {
   crossLog: [],   // Historial de cruces para CSV
 };
 
+/* ── Detección de móvil y config adaptativa ───────────────────────────────── */
+
+const IS_MOBILE = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)
+                  || ('ontouchstart' in window && screen.width < 1024);
+
+/**
+ * En móvil: inferir cada SKIP_FRAMES frames y reusar detecciones en los
+ * frames intermedios. Esto multiplica el FPS visible sin perder tracking.
+ * En desktop no se salta ningún frame.
+ */
+const SKIP_FRAMES = IS_MOBILE ? 3 : 1;
+
 let detector, tracker, counter;
 let video, canvas, ctx;
 let map, mapMarker;
@@ -127,18 +139,22 @@ async function startCamera() {
 
   // Construir constraints según el tipo de fuente
   let constraints;
+  // En móvil pedir resolución más baja para reducir carga
+  const idealW = IS_MOBILE ? 480 : 640;
+  const idealH = IS_MOBILE ? 360 : 480;
+
   if (source === 'environment' || source === 'user') {
     constraints = {
       video: {
         facingMode: source === 'environment' ? { ideal: 'environment' } : 'user',
-        width: { ideal: 640 }, height: { ideal: 480 },
+        width: { ideal: idealW }, height: { ideal: idealH },
       },
     };
   } else {
     constraints = {
       video: {
         deviceId: { exact: source },
-        width: { ideal: 640 }, height: { ideal: 480 },
+        width: { ideal: idealW }, height: { ideal: idealH },
       },
     };
   }
@@ -197,6 +213,9 @@ function stopCamera() {
    ══════════════════════════════════════════════════════════════════════════════ */
 
 let _loopRunning = false;
+let _frameCount   = 0;       // Contador de frames para skip
+let _lastTracked  = [];      // Últimas detecciones trackeadas (reuso entre frames)
+let _fpsSmooth    = 0;       // FPS suavizado (media móvil)
 
 async function detectionLoop() {
   if (!state.running) { _loopRunning = false; return; }
@@ -209,30 +228,33 @@ async function detectionLoop() {
 
   const t0 = performance.now();
 
-  let tracked = [];
+  _frameCount++;
+  const runInference = (_frameCount % SKIP_FRAMES === 0);
 
-  if (detector.ready) {
+  if (runInference && detector.ready) {
     try {
-      // 1. Detección ONNX (usa vídeo directamente, no el canvas)
+      // 1. Detección ONNX
       const detections = await detector.detect(video, canvas.width, canvas.height);
 
       // 2. Tracking
-      tracked = tracker.update(detections);
+      _lastTracked = tracker.update(detections);
 
       // 3. Conteo
-      counter.process(tracked);
+      counter.process(_lastTracked);
     } catch (e) {
       console.error('[DetectionLoop] Error en detección:', e);
     }
   }
 
-  // 4. Dibujar frame + anotaciones de forma atómica (sin gap async entre ambos)
+  // 4. Dibujar frame + anotaciones (reusa _lastTracked cuando se salta inferencia)
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  drawAnnotations(ctx, tracked);
+  drawAnnotations(ctx, _lastTracked);
 
-  // 5. FPS
+  // 5. FPS (media móvil para lectura estable)
   const elapsed = performance.now() - t0;
-  state.fps = Math.round(1000 / Math.max(elapsed, 1));
+  const instantFps = 1000 / Math.max(elapsed, 1);
+  _fpsSmooth = _fpsSmooth === 0 ? instantFps : _fpsSmooth * 0.8 + instantFps * 0.2;
+  state.fps = Math.round(_fpsSmooth);
 
   // 6. Actualizar UI
   updateUI();
