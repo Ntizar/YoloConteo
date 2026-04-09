@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YoloConteo - Sistema de Conteo Bidireccional</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Hero Section -->
+    <header class="hero">
+        <nav class="navbar">
+            <div class="nav-brand">
+                <span class="logo">🎯</span>
+                <span class="brand-name">YoloConteo</span>
+            </div>
+            <div class="nav-links">
+                <a href="#features">Características</a>
+                <a href="#architecture">Arquitectura</a>
+                <a href="#install">Instalación</a>
+                <a href="#usage">Uso</a>
+                <a href="https://github.com/Ntizar/YoloConteo" class="btn-github" target="_blank">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    GitHub
+                </a>
+            </div>
+        </nav>
+
+        <div class="hero-content">
+            <div class="hero-badge">Powered by YOLOv8 + DeepSort</div>
+            <h1>Sistema de Conteo<br><span class="gradient-text">Bidireccional</span></h1>
+            <p class="hero-description">
+                Detecta y cuenta personas y vehículos de movilidad personal en tiempo real 
+                usando inteligencia artificial. Conteo preciso en ambas direcciones con 
+                interfaz visual intuitiva.
+            </p>
+            <div class="hero-buttons">
+                <a href="#install" class="btn btn-primary">Comenzar</a>
+                <a href="https://github.com/Ntizar/YoloConteo" class="btn btn-secondary" target="_blank">Ver Código</a>
+            </div>
+            <div class="hero-stats">
+                <div class="stat">
+                    <span class="stat-number">6</span>
+                    <span class="stat-label">Categorías</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">2</span>
+                    <span class="stat-label">Direcciones</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">RT</span>
+                    <span class="stat-label">Tiempo Real</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Categories Section -->
+    <section id="features" class="section categories-section">
+        <div class="container">
+            <h2 class="section-title">Categorías de Detección</h2>
+            <p class="section-subtitle">El sistema identifica y clasifica automáticamente 6 tipos de objetos en movimiento</p>
+            <div class="categories-grid">
+                <div class="category-card">
+                    <div class="category-icon" style="background: #22c55e22; color: #22c55e;">👤</div>
+                    <h3>Adultos</h3>
+                    <p>Detección de peatones adultos con modelo YOLO</p>
+                </div>
+                <div class="category-card">
+                    <div class="category-icon" style="background: #3b82f622; color: #3b82f6;">👶</div>
+                    <h3>Niños</h3>
+                    <p>Diferenciación por heurística de tamaño del bounding box</p>
+                </div>
+                <div class="category-card">
+                    <div class="category-icon" style="background: #a855f722; color: #a855f7;">♿</div>
+                    <h3>Sillas de ruedas</h3>
+                    <p>Detección de personas en silla de ruedas</p>
+                </div>
+                <div class="category-card">
+                    <div class="category-icon" style="background: #f9731622; color: #f97316;">🚲</div>
+                    <h3>Bicicletas</h3>
+                    <p>Ciclistas y bicicletas en movimiento</p>
+                </div>
+                <div class="category-card">
+                    <div class="category-icon" style="background: #ef444422; color: #ef4444;">🛴</div>
+                    <h3>Patinetes</h3>
+                    <p>Patinetes eléctricos y scooters</p>
+                </div>
+                <div class="category-card">
+                    <div class="category-icon" style="background: #7c3aed22; color: #7c3aed;">🦽</div>
+                    <h3>Movilidad reducida</h3>
+                    <p>Personas con dispositivos de movilidad asistida</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="section features-section">
+        <div class="container">
+            <h2 class="section-title">Características Principales</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🎥</div>
+                    <h3>Video en Tiempo Real</h3>
+                    <p>Feed de webcam con bounding boxes coloreados por categoría. Visualización de FPS y timestamp en pantalla.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Registro de Datos</h3>
+                    <p>Exportación automática a CSV con timestamp, geolocalización GPS y contadores por categoría y dirección.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📍</div>
+                    <h3>Geolocalización</h3>
+                    <p>Obtención automática de coordenadas GPS por IP. Mapa interactivo para selección manual de ubicación.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📸</div>
+                    <h3>Snapshots Automáticos</h3>
+                    <p>Capturas de pantalla periódicas cada 5 minutos para documentación visual del conteo.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔄</div>
+                    <h3>Conteo Bidireccional</h3>
+                    <p>Línea virtual configurable para contar objetos en ambas direcciones con tracking por ID único.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Alto Rendimiento</h3>
+                    <p>Modelo YOLOv8 nano optimizado. Compatible con CPU y GPU NVIDIA con soporte CUDA.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Section -->
+    <section id="architecture" class="section architecture-section">
+        <div class="container">
+            <h2 class="section-title">Arquitectura del Sistema</h2>
+            <p class="section-subtitle">Diseño modular con separación clara de responsabilidades</p>
+            <div class="architecture-diagram">
+                <div class="arch-row">
+                    <div class="arch-box arch-main">
+                        <div class="arch-label">Orquestador</div>
+                        <strong>main.py</strong>
+                        <span>YoloConteoApp</span>
+                    </div>
+                </div>
+                <div class="arch-connectors">
+                    <div class="connector"></div>
+                    <div class="connector"></div>
+                    <div class="connector"></div>
+                </div>
+                <div class="arch-row arch-modules">
+                    <div class="arch-box arch-module">
+                        <div class="arch-label">Detección</div>
+                        <strong>detector_yolo.py</strong>
+                        <span>YOLO v8</span>
+                    </div>
+                    <div class="arch-box arch-module">
+                        <div class="arch-label">Tracking + Conteo</div>
+                        <strong>bidirectional_counter.py</strong>
+                        <span>DeepSort</span>
+                    </div>
+                    <div class="arch-box arch-module">
+                        <div class="arch-label">Registro</div>
+                        <strong>data_logger.py</strong>
+                        <span>CSV + GPS</span>
+                    </div>
+                </div>
+                <div class="arch-connectors">
+                    <div class="connector"></div>
+                </div>
+                <div class="arch-row">
+                    <div class="arch-box arch-gui">
+                        <div class="arch-label">Interfaz</div>
+                        <strong>gui_nueva.py</strong>
+                        <span>Tkinter Dashboard</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Data Flow -->
+            <div class="data-flow">
+                <h3>Flujo de Procesamiento</h3>
+                <div class="flow-steps">
+                    <div class="flow-step">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <strong>Captura</strong>
+                            <span>Webcam → Frame BGR</span>
+                        </div>
+                    </div>
+                    <div class="flow-arrow">→</div>
+                    <div class="flow-step">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <strong>Detección</strong>
+                            <span>YOLO v8 inferencia</span>
+                        </div>
+                    </div>
+                    <div class="flow-arrow">→</div>
+                    <div class="flow-step">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <strong>Tracking</strong>
+                            <span>DeepSort IDs</span>
+                        </div>
+                    </div>
+                    <div class="flow-arrow">→</div>
+                    <div class="flow-step">
+                        <div class="step-number">4</div>
+                        <div class="step-content">
+                            <strong>Conteo</strong>
+                            <span>Cruce de línea</span>
+                        </div>
+                    </div>
+                    <div class="flow-arrow">→</div>
+                    <div class="flow-step">
+                        <div class="step-number">5</div>
+                        <div class="step-content">
+                            <strong>Registro</strong>
+                            <span>CSV + Snapshot</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Installation Section -->
+    <section id="install" class="section install-section">
+        <div class="container">
+            <h2 class="section-title">Instalación</h2>
+            <div class="install-steps">
+                <div class="install-step">
+                    <div class="step-header">
+                        <span class="step-num">1</span>
+                        <h3>Clonar el repositorio</h3>
+                    </div>
+                    <pre><code>git clone https://github.com/Ntizar/YoloConteo.git
+cd YoloConteo</code></pre>
+                </div>
+                <div class="install-step">
+                    <div class="step-header">
+                        <span class="step-num">2</span>
+                        <h3>Crear entorno virtual</h3>
+                    </div>
+                    <pre><code>python -m venv venv
+
+# Windows
+venv\Scripts\activate
+
+# Linux/macOS
+source venv/bin/activate</code></pre>
+                </div>
+                <div class="install-step">
+                    <div class="step-header">
+                        <span class="step-num">3</span>
+                        <h3>Instalar dependencias</h3>
+                    </div>
+                    <pre><code>pip install -r requirements.txt</code></pre>
+                </div>
+                <div class="install-step">
+                    <div class="step-header">
+                        <span class="step-num">4</span>
+                        <h3>Ejecutar</h3>
+                    </div>
+                    <pre><code>python main.py</code></pre>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Usage Section -->
+    <section id="usage" class="section usage-section">
+        <div class="container">
+            <h2 class="section-title">Uso de la Aplicación</h2>
+            <div class="usage-grid">
+                <div class="usage-card">
+                    <h3>Controles</h3>
+                    <table class="controls-table">
+                        <tr><td>▶ Iniciar Conteo</td><td>Inicia captura de video y conteo</td></tr>
+                        <tr><td>⏸ Pausar</td><td>Pausa/reanuda el conteo</td></tr>
+                        <tr><td>🔄 Reiniciar</td><td>Reinicia todos los contadores a cero</td></tr>
+                        <tr><td>💾 Exportar</td><td>Guarda resumen en CSV</td></tr>
+                    </table>
+                </div>
+                <div class="usage-card">
+                    <h3>Ajustes</h3>
+                    <ul class="settings-list">
+                        <li><strong>Posición de línea:</strong> Slider para mover la línea de conteo</li>
+                        <li><strong>Umbral de confianza:</strong> Ajusta la sensibilidad de detección</li>
+                        <li><strong>Ubicación:</strong> Nombre del lugar o selección en mapa</li>
+                        <li><strong>Cámara:</strong> Índice de webcam configurable</li>
+                    </ul>
+                </div>
+            </div>
+
+            <h3 class="subsection-title">Formato de Datos CSV</h3>
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Columna</th>
+                            <th>Descripción</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>timestamp</td><td>Fecha y hora ISO 8601</td></tr>
+                        <tr><td>latitude / longitude</td><td>Coordenadas GPS</td></tr>
+                        <tr><td>ubicacion</td><td>Nombre del lugar</td></tr>
+                        <tr><td>categoria</td><td>Tipo de objeto detectado</td></tr>
+                        <tr><td>direccion</td><td>Izq→Der o Der→Izq</td></tr>
+                        <tr><td>count_izq_der / count_der_izq</td><td>Totales acumulados por dirección</td></tr>
+                        <tr><td>total_categoria</td><td>Total de la categoría</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tech Stack Section -->
+    <section class="section tech-section">
+        <div class="container">
+            <h2 class="section-title">Stack Tecnológico</h2>
+            <div class="tech-grid">
+                <div class="tech-item">
+                    <div class="tech-logo">🐍</div>
+                    <span>Python 3.8+</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-logo">🔍</div>
+                    <span>YOLOv8</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-logo">🎯</div>
+                    <span>DeepSort</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-logo">📷</div>
+                    <span>OpenCV</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-logo">🖥️</div>
+                    <span>Tkinter</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-logo">📊</div>
+                    <span>Pandas</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>Desarrollado con ❤️ usando Python, YOLO y Tkinter</p>
+            <p class="footer-links">
+                <a href="https://github.com/Ntizar/YoloConteo" target="_blank">GitHub</a>
+                <span>·</span>
+                <a href="https://github.com/Ntizar/YoloConteo/issues" target="_blank">Issues</a>
+                <span>·</span>
+                <a href="https://github.com/Ntizar/YoloConteo/blob/main/LICENSE" target="_blank">Licencia</a>
+            </p>
+            <p class="copyright">© 2026 YoloConteo · Código Abierto</p>
+        </div>
+    </footer>
+</body>
+</html>
