@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Entorno virtual
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Modelo YOLO (se descarga automáticamente)
+*.pt
+# Excluir ONNX excepto el modelo web precompilado
+*.onnx
+!web/yolov8n.onnx
+
+# Datos de sesión
+datos/
+snapshots/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log

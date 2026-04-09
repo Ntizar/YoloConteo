@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YoloConteo v2 — Web</title>
+  <link rel="stylesheet" href="ntizar.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        crossorigin="anonymous" />
+  <style>
+    body { padding-bottom: 3rem; }
+
+    /* Navbar mobile: ocultar nav-links */
+    @media (max-width: 640px) {
+      .navbar-nav { display: none; }
+    }
+
+    /* Grid de contadores: 2 cols mobile, 3 en desktop */
+    .counters-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+    }
+    @media (min-width: 900px) {
+      .counters-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    .count-number {
+      font-size: 2.25rem;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--text-primary);
+    }
+
+    /* Canvas de vídeo responsive */
+    #video-canvas {
+      width: 100%;
+      max-width: 640px;
+      display: block;
+      border-radius: var(--radius-lg);
+      background: #111;
+    }
+
+    /* Loading overlay */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      background: rgba(0,0,0,0.85);
+      backdrop-filter: blur(10px);
+    }
+    #loading-overlay .spinner {
+      width: 48px; height: 48px;
+      border: 4px solid rgba(255,255,255,0.15);
+      border-top-color: var(--blue-500, #3b82f6);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading-text {
+      color: #fff;
+      font-size: 1.1rem;
+      text-align: center;
+    }
+
+    /* Alertas */
+    #alert-container {
+      position: fixed;
+      top: 1rem; right: 1rem;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      max-width: 340px;
+      width: calc(100vw - 2rem);
+    }
+
+    /* Slider */
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--blue-500);
+    }
+
+    #video-section { margin-top: 1rem; }
+
+    /* Mapa Leaflet */
+    #location-map {
+      width: 100%;
+      height: 300px;
+      border-radius: var(--radius-lg);
+      margin-top: 1rem;
+      z-index: 1;
+    }
+
+    /* Orbs decorativos */
+    .orb-wrapper {
+      position: fixed; inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 0;
+    }
+    .main-content { position: relative; z-index: 1; }
+  </style>
+</head>
+<body>
+
+<!-- ── Loading overlay (modelo ONNX) ─────────────────────────────────── -->
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div id="loading-text">Inicializando…</div>
+</div>
+
+<!-- ── Orbs decorativos ──────────────────────────────────────────────── -->
+<div class="orb-wrapper">
+  <div class="orb orb-blue"   style="width:400px;height:400px;top:-150px;left:-150px;opacity:0.5;"></div>
+  <div class="orb orb-orange" style="width:350px;height:350px;bottom:-120px;right:-120px;opacity:0.5;"></div>
+</div>
+
+<!-- ── Navbar ─────────────────────────────────────────────────────────── -->
+<nav class="navbar navbar-float">
+  <a href="#" class="navbar-brand">
+    <span class="navbar-brand-dot"></span>
+    YoloConteo
+    <span class="badge badge-glass no-dot" style="font-size:0.65rem;">v2 Web</span>
+  </a>
+
+  <ul class="navbar-nav">
+    <li><a href="#contadores" class="nav-link active">Contadores</a></li>
+    <li><a href="#video-card" class="nav-link">Video</a></li>
+    <li><a href="#ubicacion-card" class="nav-link">Ubicación</a></li>
+    <li><a href="#resumen-card" class="nav-link">Resumen</a></li>
+  </ul>
+
+  <div class="navbar-actions">
+    <span id="status-badge" class="badge badge-glass no-dot">Detenido</span>
+    <span id="backend-badge" class="badge badge-blue no-dot" style="font-size:0.6rem;">—</span>
+    <button id="btn-theme" class="btn btn-ghost btn-icon" aria-label="Cambiar tema">
+      <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M12 3v1m0 16v1m8.66-9h-1M4.34 12h-1m15.07-6.07-.7.7M6.34 17.66l-.7.7M17.66 17.66l-.7-.7M6.34 6.34l-.7-.7M12 8a4 4 0 100 8 4 4 0 000-8z"/>
+      </svg>
+    </button>
+  </div>
+</nav>
+
+<!-- ── Contenido principal ────────────────────────────────────────────── -->
+<div class="main-content container" style="padding-top:1.5rem;">
+
+  <!-- ─── Panel de controles ─────────────────────────────────────────── -->
+  <div id="contadores" class="card card-glass glass-blue glass-specular specular-blue animate-fade-up" style="margin-bottom:1.5rem;">
+    <div class="card-header">
+      <span class="card-title">Controles</span>
+      <span id="fps-badge" class="badge badge-glass no-dot">— fps</span>
+    </div>
+    <div class="card-body">
+
+      <!-- Fuente de vídeo -->
+      <div class="input-group" style="margin-bottom:1rem;">
+        <label class="input-label">Cámara</label>
+        <select id="camera-select" class="select">
+          <option value="environment">📷 Cámara trasera</option>
+          <option value="user">🤳 Cámara frontal</option>
+        </select>
+      </div>
+
+      <!-- Botones de control -->
+      <div class="flex gap-3 flex-wrap" style="margin-bottom:1rem;">
+        <button id="btn-start" class="btn btn-primary btn-lg animate-glow-blue" style="flex:1;min-width:120px;">
+          ▶ Iniciar
+        </button>
+        <button id="btn-pause" class="btn btn-glass btn-lg" style="flex:1;min-width:120px;" disabled>
+          ⏸ Pausar
+        </button>
+        <button id="btn-stop" class="btn btn-ghost btn-lg" style="flex:1;min-width:120px;" disabled>
+          ⏹ Detener
+        </button>
+      </div>
+      <div class="flex gap-3 flex-wrap">
+        <button id="btn-reset" class="btn btn-ghost btn-lg" style="flex:1;min-width:120px;">
+          🔄 Reiniciar
+        </button>
+        <button id="btn-export" class="btn btn-accent btn-lg" style="flex:1;min-width:120px;">
+          📥 Exportar CSV
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Grid de contadores ─────────────────────────────────────────── -->
+  <div class="counters-grid" style="margin-bottom:1.5rem;">
+
+    <!-- Personas -->
+    <div class="card card-accent-blue animate-fade-up delay-1">
+      <div class="card-header">
+        <span>👤 Personas</span>
+        <span class="badge badge-blue no-dot" id="count-persons-total">0</span>
+      </div>
+      <div class="card-body">
+        <div class="flex justify-between" style="margin-bottom:.5rem;">
+          <span class="text-muted">→ Entrada</span>
+          <span class="text-blue" id="count-persons-in">0</span>
+        </div>
+        <div class="flex justify-between" style="margin-bottom:.75rem;">
+          <span class="text-muted">← Salida</span>
+          <span class="text-orange" id="count-persons-out">0</span>
+        </div>
+        <div class="progress-wrap"><div class="progress-bar" id="bar-persons" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <!-- Coches -->
+    <div class="card card-accent-blue animate-fade-up delay-2">
+      <div class="card-header">
+        <span>🚗 Coches</span>
+        <span class="badge badge-blue no-dot" id="count-cars-total">0</span>
+      </div>
+      <div class="card-body">
+        <div class="flex justify-between" style="margin-bottom:.5rem;">
+          <span class="text-muted">→ Entrada</span>
+          <span class="text-blue" id="count-cars-in">0</span>
+        </div>
+        <div class="flex justify-between" style="margin-bottom:.75rem;">
+          <span class="text-muted">← Salida</span>
+          <span class="text-orange" id="count-cars-out">0</span>
+        </div>
+        <div class="progress-wrap"><div class="progress-bar" id="bar-cars" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <!-- Motos -->
+    <div class="card card-accent-blue animate-fade-up delay-3">
+      <div class="card-header">
+        <span>🏍️ Motos</span>
+        <span class="badge badge-blue no-dot" id="count-motorcycles-total">0</span>
+      </div>
+      <div class="card-body">
+        <div class="flex justify-between" style="margin-bottom:.5rem;">
+          <span class="text-muted">→ Entrada</span>
+          <span class="text-blue" id="count-motorcycles-in">0</span>
+        </div>
+        <div class="flex justify-between" style="margin-bottom:.75rem;">
+          <span class="text-muted">← Salida</span>
+          <span class="text-orange" id="count-motorcycles-out">0</span>
+        </div>
+        <div class="progress-wrap"><div class="progress-bar" id="bar-motorcycles" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <!-- Autobuses -->
+    <div class="card card-accent-orange animate-fade-up delay-1">
+      <div class="card-header">
+        <span>🚌 Autobuses</span>
+        <span class="badge badge-orange no-dot" id="count-buses-total">0</span>
+      </div>
+      <div class="card-body">
+        <div class="flex justify-between" style="margin-bottom:.5rem;">
+          <span class="text-muted">→ Entrada</span>
+          <span class="text-blue" id="count-buses-in">0</span>
+        </div>
+        <div class="flex justify-between" style="margin-bottom:.75rem;">
+          <span class="text-muted">← Salida</span>
+          <span class="text-orange" id="count-buses-out">0</span>
+        </div>
+        <div class="progress-wrap"><div class="progress-bar orange" id="bar-buses" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <!-- Camiones -->
+    <div class="card card-accent-orange animate-fade-up delay-2">
+      <div class="card-header">
+        <span>🚛 Camiones</span>
+        <span class="badge badge-orange no-dot" id="count-trucks-total">0</span>
+      </div>
+      <div class="card-body">
+        <div class="flex justify-between" style="margin-bottom:.5rem;">
+          <span class="text-muted">→ Entrada</span>
+          <span class="text-blue" id="count-trucks-in">0</span>
+        </div>
+        <div class="flex justify-between" style="margin-bottom:.75rem;">
+          <span class="text-muted">← Salida</span>
+          <span class="text-orange" id="count-trucks-out">0</span>
+        </div>
+        <div class="progress-wrap"><div class="progress-bar orange" id="bar-trucks" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <!-- Bicicletas -->
+    <div class="card card-accent-blue animate-fade-up delay-3">
+      <div class="card-header">
+        <span>🚲 Bicicletas</span>
+        <span class="badge badge-blue no-dot" id="count-bicycles-total">0</span>
+      </div>
+      <div class="card-body">
+        <div class="flex justify-between" style="margin-bottom:.5rem;">
+          <span class="text-muted">→ Entrada</span>
+          <span class="text-blue" id="count-bicycles-in">0</span>
+        </div>
+        <div class="flex justify-between" style="margin-bottom:.75rem;">
+          <span class="text-muted">← Salida</span>
+          <span class="text-orange" id="count-bicycles-out">0</span>
+        </div>
+        <div class="progress-wrap"><div class="progress-bar" id="bar-bicycles" style="width:0%"></div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ─── Totales globales ────────────────────────────────────────────── -->
+  <div class="card card-gradient-border animate-fade-up" style="margin-bottom:1.5rem;">
+    <div class="card-header">
+      <span class="card-title text-gradient">Total sesión</span>
+    </div>
+    <div class="card-body">
+      <div class="flex justify-between items-center gap-4 flex-wrap">
+        <div class="text-center" style="flex:1;">
+          <div style="font-size:2.5rem;font-weight:700;" class="text-blue" id="global-in">0</div>
+          <div class="text-muted" style="font-size:.85rem;">→ Entradas</div>
+        </div>
+        <div class="text-center" style="flex:1;">
+          <div style="font-size:2.5rem;font-weight:700;" class="text-orange" id="global-out">0</div>
+          <div class="text-muted" style="font-size:.85rem;">← Salidas</div>
+        </div>
+        <div class="text-center" style="flex:1;">
+          <div style="font-size:2.5rem;font-weight:700;color:var(--text-primary);" id="global-total">0</div>
+          <div class="text-muted" style="font-size:.85rem;">Total</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Video feed (canvas) ────────────────────────────────────────── -->
+  <div id="video-card" class="card card-glass glass-intense glass-specular animate-fade-up" style="margin-bottom:1.5rem;">
+    <div class="card-header">
+      <span class="card-title">Vídeo en directo</span>
+    </div>
+    <div class="card-body">
+      <div id="video-section">
+        <canvas id="video-canvas" width="640" height="480"></canvas>
+        <div style="margin-top:1rem;">
+          <div class="progress-label">
+            <span class="text-muted" style="font-size:.8rem;">Línea de conteo</span>
+            <span class="text-blue" style="font-size:.8rem;" id="line-val">50%</span>
+          </div>
+          <input id="line-slider" type="range" min="2" max="98" value="50" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Ubicación + Mapa ──────────────────────────────────────────── -->
+  <div id="ubicacion-card" class="card card-glass glass-specular animate-fade-up" style="margin-bottom:1.5rem;">
+    <div class="card-header">
+      <span class="card-title">📍 Ubicación</span>
+      <span class="text-muted" id="location-display" style="font-size:.8rem;">—</span>
+    </div>
+    <div class="card-body">
+      <div class="input-group" style="margin-bottom:1rem;">
+        <label class="input-label">Nombre del lugar</label>
+        <div class="flex gap-2">
+          <input id="location-input" class="input" type="text"
+            placeholder="Ej. Gran Vía 28, Madrid" />
+          <button id="btn-set-location" class="btn btn-glass btn-sm" style="white-space:nowrap;">
+            Guardar
+          </button>
+        </div>
+      </div>
+      <button id="btn-gps" class="btn btn-primary btn-block" style="margin-bottom:1rem;">
+        📡 Usar mi GPS (navegador)
+      </button>
+      <div class="text-muted" style="font-size:.75rem;margin-bottom:.5rem;">
+        O haz clic en el mapa para seleccionar ubicación:
+      </div>
+      <div id="location-map"></div>
+    </div>
+  </div>
+
+  <!-- ─── Tabla resumen ──────────────────────────────────────────────── -->
+  <div id="resumen-card" class="card animate-fade-up" style="margin-bottom:1.5rem;">
+    <div class="card-header">
+      <span class="card-title">Resumen</span>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-glass">
+        <table class="table table-striped table-compact">
+          <thead>
+            <tr>
+              <th>Categoría</th>
+              <th>→ Entrada</th>
+              <th>← Salida</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="summary-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Alertas ────────────────────────────────────────────────────────── -->
+<div id="alert-container" aria-live="polite"></div>
+
+<!-- ── Scripts CDN ────────────────────────────────────────────────────── -->
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.all.min.js"
+        crossorigin="anonymous"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        crossorigin="anonymous"></script>
+
+<!-- ── Scripts de la aplicación ───────────────────────────────────────── -->
+<script src="detector.js"></script>
+<script src="tracker.js"></script>
+<script src="counter.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
