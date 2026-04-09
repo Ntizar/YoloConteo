@@ -11,6 +11,8 @@
 **Contador bidireccional de personas y vehículos en tiempo real.**
 **100% en navegador — sin servidor de IA — cualquiera con un enlace lo usa.**
 
+### 👉 [Probar la app en vivo](https://yolo-conteo.vercel.app)
+
 Creado por **David Antizar**
 
 </div>
