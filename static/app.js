@@ -8,6 +8,8 @@ const state = {
   status: 'stopped',
   videoVisible: false,
   connected: false,
+  uploadedVideoPath: null,   // ruta del video subido al servidor
+  sourceType: 'camera',
 };
 
 // ── Helpers DOM ───────────────────────────────────────────────────────────────
@@ -63,11 +65,43 @@ const TOTALS     = { in: 0, out: 0, total: 0 };
 
 function updateUI(data) {
   // Estado y FPS
-  state.status = data.status;
+  state.status     = data.status;
+  state.sourceType = data.source_type || 'camera';
   updateStatusButtons(data.status);
 
   const fpsEl = $('fps-badge');
   if (fpsEl) fpsEl.textContent = `${data.fps} fps`;
+
+  // Badge de fuente
+  const srcBadge = $('video-source-badge');
+  if (srcBadge) {
+    srcBadge.textContent = state.sourceType === 'video' ? '📁 Vídeo' : '📷 Cámara';
+    srcBadge.className   = state.sourceType === 'video'
+      ? 'badge badge-warning no-dot'
+      : 'badge badge-glass no-dot';
+  }
+
+  // Progreso de reproducción de vídeo
+  const playbackWrap = $('video-playback-wrap');
+  const playbackBar  = $('video-progress-bar');
+  const playbackPct  = $('video-progress-pct');
+  if (state.sourceType === 'video') {
+    if (playbackWrap) playbackWrap.style.display = '';
+    const pct = Math.round((data.video_progress || 0) * 100);
+    if (playbackBar) playbackBar.style.width = `${pct}%`;
+    if (playbackPct) playbackPct.textContent  = `${pct}%`;
+  } else {
+    if (playbackWrap) playbackWrap.style.display = 'none';
+  }
+
+  // Notificación de vídeo terminado (una sola vez)
+  if (data.video_ended && !state._videoEndedNotified) {
+    state._videoEndedNotified = true;
+    showAlert('✅ Vídeo finalizado — revisa los resultados del conteo', 'success', 6000);
+  }
+  if (!data.video_ended) {
+    state._videoEndedNotified = false;
+  }
 
   // Ubicación
   if (data.location) {
@@ -153,6 +187,25 @@ function updateStatusButtons(status) {
     btnStop.disabled  = false;
     btnPause.textContent = '▶ Reanudar';
     if (statusBadge) { statusBadge.textContent = 'Pausado'; statusBadge.className = 'badge badge-warning no-dot'; }
+  } else if (status === 'video_ended') {
+    btnStart.disabled = false;
+    btnPause.disabled = true;
+    btnStop.disabled  = false;
+    btnPause.textContent = '⏸ Pausar';
+    if (statusBadge) { statusBadge.textContent = 'Vídeo terminado'; statusBadge.className = 'badge badge-success no-dot'; }
+  } else {
+    btnStart.disabled = false;
+    btnPause.disabled = true;
+    btnStop.disabled  = true;
+    btnPause.textContent = '⏸ Pausar';
+    if (statusBadge) { statusBadge.textContent = 'Detenido'; statusBadge.className = 'badge badge-glass no-dot'; }
+  }
+}
+    btnStart.disabled = true;
+    btnPause.disabled = false;
+    btnStop.disabled  = false;
+    btnPause.textContent = '▶ Reanudar';
+    if (statusBadge) { statusBadge.textContent = 'Pausado'; statusBadge.className = 'badge badge-warning no-dot'; }
   } else {
     btnStart.disabled = false;
     btnPause.disabled = true;
@@ -200,6 +253,9 @@ async function apiCall(endpoint, method = 'POST', body = null) {
 
 function getSelectedSource() {
   const sel = $('camera-select');
+  if (sel?.value === 'upload') {
+    return state.uploadedVideoPath || null;
+  }
   const custom = $('camera-custom');
   if (sel?.value === 'custom') return custom?.value?.trim() || '0';
   return sel?.value || '0';
@@ -207,6 +263,10 @@ function getSelectedSource() {
 
 async function startCounting() {
   const source = getSelectedSource();
+  if (source === null) {
+    showAlert('Primero sube un vídeo antes de iniciar el conteo', 'warning');
+    return;
+  }
   const res = await apiCall('/api/start', 'POST', { source });
   if (!res) showAlert('No se pudo iniciar', 'danger');
 }
@@ -238,6 +298,71 @@ async function exportCSV() {
   } catch (e) {
     showAlert(`Error exportando: ${e.message}`, 'danger');
   }
+}
+
+async function uploadVideo() {
+  const fileInput = $('video-file-input');
+  const file = fileInput?.files?.[0];
+  if (!file) { showAlert('Selecciona un archivo de vídeo primero', 'warning'); return; }
+
+  const progressWrap = $('upload-progress-wrap');
+  const progressBar  = $('upload-progress-bar');
+  const progressPct  = $('upload-pct');
+  const infoWrap     = $('video-info-wrap');
+
+  show(progressWrap);
+  hide(infoWrap);
+  if (progressBar) progressBar.style.width = '0%';
+  if (progressPct) progressPct.textContent = '0%';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload-video');
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        if (progressBar) progressBar.style.width = `${pct}%`;
+        if (progressPct) progressPct.textContent = `${pct}%`;
+      }
+    };
+
+    xhr.onload = () => {
+      hide(progressWrap);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const data = JSON.parse(xhr.responseText);
+        state.uploadedVideoPath = data.path;
+
+        // Mostrar info del vídeo
+        const nameEl = $('video-info-name');
+        const durEl  = $('video-info-dur');
+        const fpsEl2 = $('video-info-fps');
+        if (nameEl) nameEl.textContent = data.filename;
+        if (durEl)  durEl.textContent  = `${data.duration_s}s`;
+        if (fpsEl2) fpsEl2.textContent = `${data.fps} fps`;
+        show(infoWrap);
+
+        showAlert(`✅ Vídeo listo: ${data.filename} (${data.duration_s}s)`, 'success', 4000);
+        resolve(data);
+      } else {
+        let detail = 'Error al subir el vídeo';
+        try { detail = JSON.parse(xhr.responseText).detail || detail; } catch (_) {}
+        showAlert(detail, 'danger');
+        resolve(null);
+      }
+    };
+
+    xhr.onerror = () => {
+      hide(progressWrap);
+      showAlert('Error de red al subir el vídeo', 'danger');
+      resolve(null);
+    };
+
+    xhr.send(formData);
+  });
 }
 
 // ── Slider de línea ───────────────────────────────────────────────────────────
@@ -301,10 +426,16 @@ async function setLocationManual() {
 
 // ── Cámara personalizada ──────────────────────────────────────────────────────
 function onCameraSelect() {
-  const sel    = $('camera-select');
-  const custom = $('camera-custom-wrap');
-  if (custom) {
-    custom.style.display = sel?.value === 'custom' ? '' : 'none';
+  const sel        = $('camera-select');
+  const customWrap = $('camera-custom-wrap');
+  const uploadWrap = $('upload-wrap');
+  if (customWrap) customWrap.style.display = sel?.value === 'custom' ? '' : 'none';
+  if (uploadWrap) uploadWrap.style.display = sel?.value === 'upload' ? '' : 'none';
+  // Resetear ruta subida si se cambia a otro modo
+  if (sel?.value !== 'upload') {
+    state.uploadedVideoPath = null;
+    const infoWrap = $('video-info-wrap');
+    if (infoWrap) hide(infoWrap);
   }
 }
 
@@ -368,6 +499,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('btn-stop')?.addEventListener('click', stopCounting);
   $('btn-reset')?.addEventListener('click', resetCounters);
   $('btn-export')?.addEventListener('click', exportCSV);
+  $('btn-upload-video')?.addEventListener('click', uploadVideo);
   $('btn-toggle-video')?.addEventListener('click', toggleVideo);
   $('btn-gps')?.addEventListener('click', requestGPS);
   $('btn-set-location')?.addEventListener('click', setLocationManual);

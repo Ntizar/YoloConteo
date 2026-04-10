@@ -161,11 +161,22 @@
 
       <!-- Fuente de vídeo -->
       <div class="input-group" style="margin-bottom:1rem;">
-        <label class="input-label">Cámara</label>
+        <label class="input-label">Fuente de vídeo</label>
         <select id="camera-select" class="select">
           <option value="environment">📷 Cámara trasera</option>
           <option value="user">🤳 Cámara frontal</option>
+          <option value="video-file">📁 Archivo de vídeo local</option>
         </select>
+      </div>
+
+      <div id="video-file-wrap" style="display:none; margin-bottom:1rem;">
+        <div class="input-group" style="margin-bottom:.75rem;">
+          <label class="input-label">Archivo de vídeo</label>
+          <input id="video-file-input" type="file" accept="video/*" class="input" />
+        </div>
+        <div id="video-file-info" class="text-muted" style="font-size:.8rem; display:none;">
+          <span id="video-file-name">—</span>
+        </div>
       </div>
 
       <!-- Botones de control -->
@@ -337,10 +348,20 @@
   <div id="video-card" class="card card-glass glass-intense glass-specular animate-fade-up" style="margin-bottom:1.5rem;">
     <div class="card-header">
       <span class="card-title">Vídeo en directo</span>
+      <span id="video-source-badge" class="badge badge-glass no-dot" style="font-size:.7rem;">Cámara</span>
     </div>
     <div class="card-body">
       <div id="video-section">
         <canvas id="video-canvas" width="640" height="480"></canvas>
+        <div id="video-progress-wrap" style="display:none; margin-top:1rem;">
+          <div class="progress-label">
+            <span class="text-muted" style="font-size:.8rem;">Progreso de vídeo</span>
+            <span class="text-blue" style="font-size:.8rem;" id="video-progress-label">0%</span>
+          </div>
+          <div class="progress-wrap">
+            <div id="video-progress-bar" class="progress-bar orange" style="width:0%"></div>
+          </div>
+        </div>
         <div style="margin-top:1rem;">
           <div class="progress-label">
             <span class="text-muted" style="font-size:.8rem;">Línea de conteo</span>

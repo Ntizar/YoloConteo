@@ -16,6 +16,10 @@ const state = {
   paused:   false,
   fps:      0,
   backend:  'none',
+  sourceMode: 'camera',
+  selectedVideoFile: null,
+  videoObjectUrl: null,
+  videoEndedNotified: false,
   location: { name: '', lat: null, lng: null },
   sessionId: '',
   crossLog: [],   // Historial de cruces para CSV
@@ -54,6 +58,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindEvents();
   await initDetector();
   await enumerateCameras();
+  onSourceChange();
   initMap();
 });
 
@@ -95,6 +100,8 @@ async function enumerateCameras() {
   const select = $('camera-select');
   if (!select) return;
 
+  const previousValue = select.value;
+
   try {
     // Se necesita un stream temporal para obtener permisos y labels
     const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -123,8 +130,17 @@ async function enumerateCameras() {
       optFront.textContent = '🤳 Cámara frontal';
       select.appendChild(optFront);
     }
+
+    const optVideo = document.createElement('option');
+    optVideo.value = 'video-file';
+    optVideo.textContent = '📁 Archivo de vídeo local';
+    select.appendChild(optVideo);
+
+    if (previousValue) select.value = previousValue;
+    onSourceChange();
   } catch (e) {
     console.warn('No se pudieron enumerar cámaras:', e.message);
+    onSourceChange();
   }
 }
 
@@ -194,12 +210,71 @@ async function startCamera() {
   }
 }
 
+async function startVideoFile() {
+  const file = state.selectedVideoFile;
+  if (!file) {
+    showAlert('Selecciona un archivo de vídeo primero', 'warning');
+    return false;
+  }
+
+  try {
+    if (state.videoObjectUrl) {
+      URL.revokeObjectURL(state.videoObjectUrl);
+      state.videoObjectUrl = null;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    state.videoObjectUrl = objectUrl;
+
+    video = document.createElement('video');
+    video.src = objectUrl;
+    video.autoplay = false;
+    video.playsInline = true;
+    video.muted = true;
+
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error('No se pudo leer el archivo de vídeo'));
+    });
+
+    await video.play();
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+
+    canvas = $('video-canvas');
+    canvas.width  = vw;
+    canvas.height = vh;
+    ctx = canvas.getContext('2d');
+
+    counter.setFrameSize(vw, vh);
+    state.sessionId = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    state.crossLog  = [];
+    state.videoEndedNotified = false;
+
+    return true;
+  } catch (e) {
+    showAlert(`Error de vídeo: ${e.message}`, 'danger');
+    return false;
+  }
+}
+
 function stopCamera() {
-  if (video && video.srcObject) {
-    video.srcObject.getTracks().forEach(t => t.stop());
-    video.srcObject = null;
+  if (video) {
+    if (video.srcObject) {
+      video.srcObject.getTracks().forEach(t => t.stop());
+      video.srcObject = null;
+    }
+    video.pause();
+    if (video.src) video.removeAttribute('src');
+    video.load();
   }
   video = null;
+
+  if (state.videoObjectUrl) {
+    URL.revokeObjectURL(state.videoObjectUrl);
+    state.videoObjectUrl = null;
+  }
 
   if (ctx) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -223,6 +298,18 @@ async function detectionLoop() {
 
   if (state.paused || !video) {
     requestAnimationFrame(detectionLoop);
+    return;
+  }
+
+  if (state.sourceMode === 'video-file' && video.ended) {
+    state.running = false;
+    state.paused  = false;
+    updateStatusUI('video-ended');
+    if (!state.videoEndedNotified) {
+      showAlert('Vídeo finalizado — conteo completado', 'success', 5000);
+      state.videoEndedNotified = true;
+    }
+    _loopRunning = false;
     return;
   }
 
@@ -350,6 +437,27 @@ function updateUI() {
   const fpsEl = $('fps-badge');
   if (fpsEl) fpsEl.textContent = `${state.fps} fps`;
 
+  // Fuente actual
+  const sourceBadge = $('video-source-badge');
+  if (sourceBadge) {
+    const isVideo = state.sourceMode === 'video-file';
+    sourceBadge.textContent = isVideo ? '📁 Vídeo local' : '📷 Cámara';
+    sourceBadge.className = isVideo ? 'badge badge-warning no-dot' : 'badge badge-glass no-dot';
+  }
+
+  // Progreso en archivo de vídeo
+  const progressWrap = $('video-progress-wrap');
+  const progressBar = $('video-progress-bar');
+  const progressLabel = $('video-progress-label');
+  if (state.sourceMode === 'video-file' && video && Number.isFinite(video.duration) && video.duration > 0) {
+    show(progressWrap);
+    const pct = Math.max(0, Math.min(100, Math.round((video.currentTime / video.duration) * 100)));
+    if (progressBar) progressBar.style.width = `${pct}%`;
+    if (progressLabel) progressLabel.textContent = `${pct}%`;
+  } else {
+    hide(progressWrap);
+  }
+
   // Contadores por categoría
   let totalIn = 0, totalOut = 0;
 
@@ -410,6 +518,12 @@ function updateStatusUI(status) {
     btnStop.disabled  = false;
     btnPause.textContent = '▶ Reanudar';
     if (badge) { badge.textContent = 'Pausado'; badge.className = 'badge badge-warning no-dot'; }
+  } else if (status === 'video-ended') {
+    btnStart.disabled = false;
+    btnPause.disabled = true;
+    btnStop.disabled  = false;
+    btnPause.textContent = '⏸ Pausar';
+    if (badge) { badge.textContent = 'Vídeo terminado'; badge.className = 'badge badge-success no-dot'; }
   } else {
     btnStart.disabled = false;
     btnPause.disabled = true;
@@ -443,12 +557,14 @@ function updateTable(counts) {
 async function startCounting() {
   if (state.running) return;
 
-  showAlert('Iniciando cámara…', 'info', 2000);
-  const ok = await startCamera();
+  const isVideo = state.sourceMode === 'video-file';
+  showAlert(isVideo ? 'Iniciando análisis de vídeo…' : 'Iniciando cámara…', 'info', 2000);
+  const ok = isVideo ? await startVideoFile() : await startCamera();
   if (!ok) return;
 
   state.running = true;
   state.paused  = false;
+  state.videoEndedNotified = false;
   updateStatusUI('running');
 
   // Mostrar sección de vídeo
@@ -466,6 +582,7 @@ function pauseCounting() {
 function stopCounting() {
   state.running = false;
   state.paused  = false;
+  state.videoEndedNotified = false;
   stopCamera();
   updateStatusUI('stopped');
 }
@@ -491,6 +608,33 @@ function onLineSlider(value) {
   _lineDebounce = setTimeout(() => {
     counter.setLinePosition(pos);
   }, 50);
+}
+
+function onSourceChange() {
+  const source = $('camera-select')?.value || 'environment';
+  const fileWrap = $('video-file-wrap');
+  state.sourceMode = source === 'video-file' ? 'video-file' : 'camera';
+  if (state.sourceMode === 'video-file') {
+    show(fileWrap);
+  } else {
+    hide(fileWrap);
+  }
+  updateUI();
+}
+
+function onVideoFileSelected(event) {
+  const file = event?.target?.files?.[0] || null;
+  state.selectedVideoFile = file;
+  state.videoEndedNotified = false;
+
+  const info = $('video-file-info');
+  const name = $('video-file-name');
+  if (file) {
+    if (name) name.textContent = `${file.name} (${Math.round(file.size / 1024 / 1024 * 10) / 10} MB)`;
+    show(info);
+  } else {
+    hide(info);
+  }
 }
 
 
@@ -753,4 +897,6 @@ function bindEvents() {
   $('btn-theme')?.addEventListener('click', toggleTheme);
 
   $('line-slider')?.addEventListener('input', (e) => onLineSlider(e.target.value));
+  $('camera-select')?.addEventListener('change', onSourceChange);
+  $('video-file-input')?.addEventListener('change', onVideoFileSelected);
 }
