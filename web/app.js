@@ -356,22 +356,33 @@ async function detectionLoop() {
 
 function drawAnnotations(ctx, tracked) {
   const lineX = counter.lineX;
-  const h = canvas.height;
+  const lineTop = counter.lineTop;
+  const lineBottom = counter.lineBottom;
 
   // ── Línea de conteo ────────────────────────────────────────────────
   ctx.beginPath();
-  ctx.moveTo(lineX, 0);
-  ctx.lineTo(lineX, h);
+  ctx.moveTo(lineX, lineTop);
+  ctx.lineTo(lineX, lineBottom);
   ctx.strokeStyle = '#00ffff';
-  ctx.lineWidth   = 3;
+  ctx.lineWidth   = 4;
+  ctx.stroke();
+
+  // Extremos del segmento para referencia visual
+  ctx.strokeStyle = '#00ffff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(lineX - 10, lineTop);
+  ctx.lineTo(lineX + 10, lineTop);
+  ctx.moveTo(lineX - 10, lineBottom);
+  ctx.lineTo(lineX + 10, lineBottom);
   ctx.stroke();
 
   // Flechas de dirección
   ctx.font = 'bold 12px system-ui, sans-serif';
   ctx.fillStyle = '#00ff00';
-  ctx.fillText('→ Entrada', lineX + 6, 18);
+  ctx.fillText('→ Entrada', lineX + 8, Math.max(16, lineTop - 6));
   ctx.fillStyle = '#ff4444';
-  ctx.fillText('← Salida', lineX - 75, 38);
+  ctx.fillText('← Salida', lineX - 80, Math.max(32, lineTop + 14));
 
   // ── Detecciones ────────────────────────────────────────────────────
   for (const det of tracked) {
@@ -496,6 +507,23 @@ function updateUI() {
   if (slider && !slider.matches(':active')) {
     slider.value = Math.round(counter.linePos * 100);
   }
+
+  const sliderY = $('line-y-slider');
+  if (sliderY && !sliderY.matches(':active')) {
+    sliderY.value = Math.round(counter.lineYPos * 100);
+  }
+
+  const sliderHeight = $('line-height-slider');
+  if (sliderHeight && !sliderHeight.matches(':active')) {
+    sliderHeight.value = Math.round(counter.lineHeightRel * 100);
+  }
+
+  const lineVal = $('line-val');
+  const lineYVal = $('line-y-val');
+  const lineHeightVal = $('line-height-val');
+  if (lineVal) lineVal.textContent = `${Math.round(counter.linePos * 100)}%`;
+  if (lineYVal) lineYVal.textContent = `${Math.round(counter.lineYPos * 100)}%`;
+  if (lineHeightVal) lineHeightVal.textContent = `${Math.round(counter.lineHeightRel * 100)}%`;
 }
 
 function updateStatusUI(status) {
@@ -607,6 +635,24 @@ function onLineSlider(value) {
   clearTimeout(_lineDebounce);
   _lineDebounce = setTimeout(() => {
     counter.setLinePosition(pos);
+  }, 50);
+}
+
+function onLineYSlider(value) {
+  const pos = parseInt(value, 10) / 100;
+  $('line-y-val').textContent = value + '%';
+  clearTimeout(_lineDebounce);
+  _lineDebounce = setTimeout(() => {
+    counter.setLineYPosition(pos);
+  }, 50);
+}
+
+function onLineHeightSlider(value) {
+  const h = parseInt(value, 10) / 100;
+  $('line-height-val').textContent = value + '%';
+  clearTimeout(_lineDebounce);
+  _lineDebounce = setTimeout(() => {
+    counter.setLineHeight(h);
   }, 50);
 }
 
@@ -897,6 +943,8 @@ function bindEvents() {
   $('btn-theme')?.addEventListener('click', toggleTheme);
 
   $('line-slider')?.addEventListener('input', (e) => onLineSlider(e.target.value));
+  $('line-y-slider')?.addEventListener('input', (e) => onLineYSlider(e.target.value));
+  $('line-height-slider')?.addEventListener('input', (e) => onLineHeightSlider(e.target.value));
   $('camera-select')?.addEventListener('change', onSourceChange);
   $('video-file-input')?.addEventListener('change', onVideoFileSelected);
 }

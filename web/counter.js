@@ -16,17 +16,26 @@ const CATEGORY_KEYS = ['persons', 'bicycles', 'cars', 'motorcycles', 'buses', 't
 class Counter {
   /**
    * @param {Object}   opts
-   * @param {number}   opts.linePosition  Posición relativa de la línea (0.0 – 1.0)
+   * @param {number}   opts.linePosition  Posición relativa X de la línea (0.0 – 1.0)
+   * @param {number}   opts.lineYPosition Posición relativa Y del centro de segmento (0.0 – 1.0)
+   * @param {number}   opts.lineHeight    Altura relativa del segmento (0.0 – 1.0)
    * @param {number}   opts.margin        Píxeles de margen para resetear la bandera de cruce
    * @param {Function} opts.onCross       Callback(categoria, direction, trackId)
    */
-  constructor({ linePosition = 0.5, margin = 30, onCross = null } = {}) {
+  constructor({ linePosition = 0.5, lineYPosition = 0.5, lineHeight = 1.0, margin = 30, onCross = null } = {}) {
     this.linePos     = linePosition;
+    this.lineYPos    = lineYPosition;
+    this.lineHeightRel = lineHeight;
     this.margin      = margin;
     this.onCross     = onCross;
     this.frameWidth  = 640;
     this.frameHeight = 480;
     this.lineX       = Math.round(this.frameWidth * this.linePos);
+    this.lineY       = Math.round(this.frameHeight * this.lineYPos);
+    this.lineHeightPx = Math.round(this.frameHeight * this.lineHeightRel);
+    this.lineTop     = 0;
+    this.lineBottom  = this.frameHeight;
+    this._recomputeLineSegment();
 
     /** Estado de cruce por track: Map<trackId, { categoria, canCross }> */
     this._trackState = new Map();
@@ -43,12 +52,44 @@ class Counter {
     this.frameWidth  = w;
     this.frameHeight = h;
     this.lineX       = Math.round(w * this.linePos);
+    this._recomputeLineSegment();
   }
 
   /** Actualiza posición relativa de la línea (0.02 – 0.98) */
   setLinePosition(pos) {
     this.linePos = Math.max(0.02, Math.min(0.98, pos));
     this.lineX   = Math.round(this.frameWidth * this.linePos);
+  }
+
+  /** Actualiza posición vertical relativa del centro del segmento (0.02 – 0.98) */
+  setLineYPosition(pos) {
+    this.lineYPos = Math.max(0.02, Math.min(0.98, pos));
+    this._recomputeLineSegment();
+  }
+
+  /** Actualiza altura relativa del segmento (0.05 – 1.0) */
+  setLineHeight(heightRel) {
+    this.lineHeightRel = Math.max(0.05, Math.min(1.0, heightRel));
+    this._recomputeLineSegment();
+  }
+
+  _recomputeLineSegment() {
+    this.lineY = Math.round(this.frameHeight * this.lineYPos);
+    this.lineHeightPx = Math.round(this.frameHeight * this.lineHeightRel);
+
+    const half = Math.round(this.lineHeightPx / 2);
+    this.lineTop = Math.max(0, this.lineY - half);
+    this.lineBottom = Math.min(this.frameHeight, this.lineY + half);
+
+    // Ajustar para mantener altura lo más cercana posible cuando toca bordes
+    const currentHeight = this.lineBottom - this.lineTop;
+    if (currentHeight < this.lineHeightPx && this.frameHeight >= this.lineHeightPx) {
+      if (this.lineTop === 0) {
+        this.lineBottom = this.lineHeightPx;
+      } else if (this.lineBottom === this.frameHeight) {
+        this.lineTop = this.frameHeight - this.lineHeightPx;
+      }
+    }
   }
 
   /* ── Procesamiento ──────────────────────────────────────────────────── */
@@ -78,14 +119,18 @@ class Counter {
       if (history && history.length >= 2) {
         const prevX = history[history.length - 2];
         const currX = history[history.length - 1];
+        const centerY = det.center?.[1];
+        const insideSegment = Number.isFinite(centerY)
+          && centerY >= this.lineTop
+          && centerY <= this.lineBottom;
 
-        if (prevX < this.lineX && currX >= this.lineX && state.canCross) {
+        if (prevX < this.lineX && currX >= this.lineX && state.canCross && insideSegment) {
           // Izquierda → Derecha = Entrada
           this.counts[categoria].in++;
           state.canCross = false;
           if (this.onCross) this.onCross(categoria, 'in', trackId);
 
-        } else if (prevX > this.lineX && currX <= this.lineX && state.canCross) {
+        } else if (prevX > this.lineX && currX <= this.lineX && state.canCross && insideSegment) {
           // Derecha → Izquierda = Salida
           this.counts[categoria].out++;
           state.canCross = false;
