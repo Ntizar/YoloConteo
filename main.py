@@ -13,6 +13,8 @@ import asyncio
 import json
 import logging
 import os
+import shutil
+import tempfile
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -21,7 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 import cv2
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -69,9 +71,12 @@ ws_clients: list[WebSocket] = []
 
 # Estado de la sesión
 _state = {
-    "status":       "stopped",   # stopped | running | paused
-    "fps":          0.0,
-    "line_pos":     0.5,
+    "status":         "stopped",   # stopped | running | paused | video_ended
+    "fps":            0.0,
+    "line_pos":       0.5,
+    "source_type":    "camera",    # camera | video
+    "video_progress": 0.0,         # 0.0–1.0 (solo para archivos de video)
+    "video_ended":    False,
 }
 _state_lock = threading.Lock()
 
@@ -105,6 +110,10 @@ def _video_pipeline() -> None:
         with _state_lock:
             status = _state["status"]
 
+        if status == "video_ended":
+            time.sleep(0.1)
+            continue
+
         if status != "running":
             time.sleep(0.05)
             continue
@@ -113,8 +122,12 @@ def _video_pipeline() -> None:
             time.sleep(0.1)
             continue
 
+        # Para archivos de video: controlar velocidad según FPS nativos
+        frame_start = time.monotonic()
+
         frame = mjpeg.read_raw()
         if frame is None:
+            # read_raw devuelve None → video terminado (callback ya disparado)
             time.sleep(0.01)
             continue
 
@@ -145,12 +158,32 @@ def _video_pipeline() -> None:
             fps_counter = 0
             fps_last    = now
 
+        # Progreso del video
+        with _state_lock:
+            _state["video_progress"] = mjpeg.video_progress
+
         # Snapshot automático
         if now - _snapshot_last >= SNAPSHOT_INTERVAL:
             raw = mjpeg.get_raw_frame()
             if raw is not None:
                 data_logger.save_snapshot(raw)
             _snapshot_last = now
+
+        # Throttle para archivos de video (respetar FPS nativos del video)
+        if mjpeg.is_video_file and mjpeg._video_fps > 0:
+            elapsed = time.monotonic() - frame_start
+            wait    = (1.0 / mjpeg._video_fps) - elapsed
+            if wait > 0:
+                time.sleep(wait)
+
+
+def _on_video_ended() -> None:
+    """Llamado desde stream.py cuando el archivo de video llega al final."""
+    with _state_lock:
+        _state["status"]         = "video_ended"
+        _state["video_progress"] = 1.0
+        _state["video_ended"]    = True
+    logger.info("Video finalizado — conteo completado")
 
 
 def _start_pipeline() -> None:
@@ -172,16 +205,22 @@ async def _ws_broadcaster() -> None:
             continue
 
         with _state_lock:
-            status = _state["status"]
-            fps    = _state["fps"]
+            status         = _state["status"]
+            fps            = _state["fps"]
+            source_type    = _state["source_type"]
+            video_progress = _state["video_progress"]
+            video_ended    = _state["video_ended"]
 
         payload = {
-            "timestamp": datetime.now().isoformat(timespec="seconds"),
-            "fps":       fps,
-            "status":    status,
-            "location":  data_logger.get_location(),
-            "counts":    counter.get_counts(),
-            "line_pos":  counter.line_pos,
+            "timestamp":       datetime.now().isoformat(timespec="seconds"),
+            "fps":             fps,
+            "status":          status,
+            "location":        data_logger.get_location(),
+            "counts":          counter.get_counts(),
+            "line_pos":        counter.line_pos,
+            "source_type":     source_type,
+            "video_progress":  video_progress,
+            "video_ended":     video_ended,
         }
         msg = json.dumps(payload, ensure_ascii=False)
 
@@ -246,18 +285,27 @@ class CameraBody(BaseModel):
 
 @app.post("/api/start")
 async def api_start(body: StartBody):
-    if not mjpeg.is_open or str(body.source) != str(mjpeg._source):
-        ok = mjpeg.open_camera(body.source)
+    source = body.source
+    is_file = Path(source).is_file() if not str(source).isdigit() else False
+
+    if not mjpeg.is_open or str(source) != str(mjpeg._source):
+        ok = mjpeg.open_camera(
+            source,
+            on_video_end=_on_video_ended if is_file else None,
+        )
         if not ok:
-            raise HTTPException(status_code=400, detail=f"No se pudo abrir: {body.source}")
+            raise HTTPException(status_code=400, detail=f"No se pudo abrir: {source}")
 
     data_logger.new_session()
     _start_pipeline()
 
     with _state_lock:
-        _state["status"] = "running"
+        _state["status"]         = "running"
+        _state["source_type"]    = "video" if is_file else "camera"
+        _state["video_progress"] = 0.0
+        _state["video_ended"]    = False
 
-    return {"status": "running"}
+    return {"status": "running", "source_type": _state["source_type"]}
 
 
 @app.post("/api/pause")
@@ -286,10 +334,66 @@ async def api_export():
     return FileResponse(path, filename=os.path.basename(path), media_type="text/csv")
 
 
+# Carpeta temporal para videos subidos
+_UPLOAD_DIR = Path(tempfile.gettempdir()) / "yoloconteo_uploads"
+_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@app.post("/api/upload-video")
+async def api_upload_video(file: UploadFile = File(...)):
+    """
+    Recibe un archivo de video subido desde el frontend.
+    Lo guarda en disco y devuelve la ruta para usar como fuente en /api/start.
+    """
+    allowed_extensions = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v", ".flv"}
+    suffix = Path(file.filename or "video").suffix.lower()
+    if suffix not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Formato no soportado: {suffix}. Usa: {', '.join(allowed_extensions)}",
+        )
+
+    # Limpiar archivos anteriores para no llenar /tmp
+    for old in _UPLOAD_DIR.glob("*"):
+        try:
+            old.unlink()
+        except Exception:
+            pass
+
+    dest = _UPLOAD_DIR / f"video{suffix}"
+    try:
+        with dest.open("wb") as out:
+            shutil.copyfileobj(file.file, out)
+    finally:
+        file.file.close()
+
+    # Validar que OpenCV puede abrir el archivo
+    cap = cv2.VideoCapture(str(dest))
+    if not cap.isOpened():
+        dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail="OpenCV no puede leer el archivo de video")
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    video_fps    = cap.get(cv2.CAP_PROP_FPS)
+    duration     = round(total_frames / video_fps, 1) if video_fps else 0
+    cap.release()
+
+    logger.info(f"Video subido: {dest}  ({total_frames} frames, {video_fps:.1f} fps, ~{duration}s)")
+    return {
+        "path":         str(dest),
+        "filename":     file.filename,
+        "total_frames": total_frames,
+        "fps":          round(video_fps, 2),
+        "duration_s":   duration,
+    }
+
+
 @app.post("/api/stop")
 async def api_stop():
     with _state_lock:
-        _state["status"] = "stopped"
+        _state["status"]         = "stopped"
+        _state["source_type"]    = "camera"
+        _state["video_progress"] = 0.0
+        _state["video_ended"]    = False
     mjpeg.close_camera()
     return {"status": "stopped"}
 
@@ -315,19 +419,27 @@ async def api_location(body: LocationBody):
 async def api_camera(body: CameraBody):
     was_running = False
     with _state_lock:
-        was_running = _state["status"] == "running"
+        was_running = _state["status"] in ("running", "paused")
         _state["status"] = "stopped"
 
     mjpeg.close_camera()
-    ok = mjpeg.open_camera(body.source)
+    source  = body.source
+    is_file = Path(source).is_file() if not str(source).isdigit() else False
+    ok = mjpeg.open_camera(
+        source,
+        on_video_end=_on_video_ended if is_file else None,
+    )
     if not ok:
-        raise HTTPException(status_code=400, detail=f"No se pudo abrir: {body.source}")
+        raise HTTPException(status_code=400, detail=f"No se pudo abrir: {source}")
 
-    if was_running:
-        with _state_lock:
+    with _state_lock:
+        _state["source_type"]    = "video" if is_file else "camera"
+        _state["video_progress"] = 0.0
+        _state["video_ended"]    = False
+        if was_running:
             _state["status"] = "running"
 
-    return {"source": body.source, "status": _state["status"]}
+    return {"source": source, "status": _state["status"]}
 
 
 # ── WebSocket ──────────────────────────────────────────────────────────────────

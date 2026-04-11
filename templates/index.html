@@ -131,6 +131,7 @@
           <option value="1">Webcam 1</option>
           <option value="2">Webcam 2</option>
           <option value="custom">URL personalizada (RTSP / archivo)</option>
+          <option value="upload">📁 Subir archivo de vídeo local</option>
         </select>
       </div>
       <div id="camera-custom-wrap" style="display:none; margin-bottom:1rem;">
@@ -138,6 +139,36 @@
           <label class="input-label">URL o ruta</label>
           <input id="camera-custom" class="input" type="text"
             placeholder="rtsp://... o /ruta/video.mp4" />
+        </div>
+      </div>
+
+      <!-- Subida de vídeo local -->
+      <div id="upload-wrap" style="display:none; margin-bottom:1rem;">
+        <div class="input-group" style="margin-bottom:.75rem;">
+          <label class="input-label">Archivo de vídeo</label>
+          <div class="flex gap-2 flex-wrap">
+            <input id="video-file-input" type="file" accept=".mp4,.avi,.mov,.mkv,.webm,.m4v,.flv"
+              class="input" style="flex:1;" />
+            <button id="btn-upload-video" class="btn btn-glass btn-sm" style="white-space:nowrap;">
+              ⬆ Subir
+            </button>
+          </div>
+        </div>
+        <!-- Progreso de subida -->
+        <div id="upload-progress-wrap" style="display:none;">
+          <div class="progress-label">
+            <span class="text-muted" style="font-size:.8rem;">Subiendo vídeo…</span>
+            <span class="text-blue" style="font-size:.8rem;" id="upload-pct">0%</span>
+          </div>
+          <div class="progress-wrap" style="margin-bottom:.5rem;">
+            <div class="progress-bar" id="upload-progress-bar" style="width:0%;transition:width .2s;"></div>
+          </div>
+        </div>
+        <!-- Info del vídeo subido -->
+        <div id="video-info-wrap" style="display:none;" class="flex gap-3 flex-wrap">
+          <span class="badge badge-glass no-dot" id="video-info-name" style="font-size:.75rem;">—</span>
+          <span class="badge badge-blue no-dot" id="video-info-dur" style="font-size:.75rem;">—</span>
+          <span class="badge badge-glass no-dot" id="video-info-fps" style="font-size:.75rem;">—</span>
         </div>
       </div>
 
@@ -326,10 +357,23 @@
   <div id="video-card" class="card card-glass glass-intense glass-specular animate-fade-up" style="margin-bottom:1.5rem;">
     <div class="card-header">
       <span class="card-title">Vídeo en directo</span>
+      <span id="video-source-badge" class="badge badge-glass no-dot" style="font-size:.7rem;">Cámara</span>
     </div>
     <div class="card-body">
       <div id="video-section">
         <img id="video-feed" src="" alt="Video feed" />
+
+        <!-- Progreso de reproducción de vídeo (solo visible en modo video) -->
+        <div id="video-playback-wrap" style="display:none; margin-top:.75rem;">
+          <div class="progress-label">
+            <span class="text-muted" style="font-size:.8rem;">Progreso del vídeo</span>
+            <span class="text-blue" style="font-size:.8rem;" id="video-progress-pct">0%</span>
+          </div>
+          <div class="progress-wrap">
+            <div class="progress-bar" id="video-progress-bar" style="width:0%;transition:width .3s;background:var(--orange-500,#f97316);"></div>
+          </div>
+        </div>
+
         <div style="margin-top:1rem;">
           <div class="progress-label">
             <span class="text-muted" style="font-size:.8rem;">Línea de conteo</span>

@@ -16,6 +16,12 @@ const state = {
   paused:   false,
   fps:      0,
   backend:  'none',
+  sourceMode: 'camera',
+  selectedVideoFile: null,
+  videoObjectUrl: null,
+  videoEndedNotified: false,
+  videoPlaybackRate: 1,
+  previewFrameCanvas: null,
   location: { name: '', lat: null, lng: null },
   sessionId: '',
   crossLog: [],   // Historial de cruces para CSV
@@ -54,6 +60,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindEvents();
   await initDetector();
   await enumerateCameras();
+  onSourceChange();
   initMap();
 });
 
@@ -95,6 +102,8 @@ async function enumerateCameras() {
   const select = $('camera-select');
   if (!select) return;
 
+  const previousValue = select.value;
+
   try {
     // Se necesita un stream temporal para obtener permisos y labels
     const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -123,8 +132,17 @@ async function enumerateCameras() {
       optFront.textContent = '🤳 Cámara frontal';
       select.appendChild(optFront);
     }
+
+    const optVideo = document.createElement('option');
+    optVideo.value = 'video-file';
+    optVideo.textContent = '📁 Archivo de vídeo local';
+    select.appendChild(optVideo);
+
+    if (previousValue) select.value = previousValue;
+    onSourceChange();
   } catch (e) {
     console.warn('No se pudieron enumerar cámaras:', e.message);
+    onSourceChange();
   }
 }
 
@@ -194,12 +212,74 @@ async function startCamera() {
   }
 }
 
+async function startVideoFile() {
+  const file = state.selectedVideoFile;
+  if (!file) {
+    showAlert('Selecciona un archivo de vídeo primero', 'warning');
+    return false;
+  }
+
+  try {
+    if (state.videoObjectUrl) {
+      URL.revokeObjectURL(state.videoObjectUrl);
+      state.videoObjectUrl = null;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    state.videoObjectUrl = objectUrl;
+
+    video = document.createElement('video');
+    video.src = objectUrl;
+    video.autoplay = false;
+    video.playsInline = true;
+    video.muted = true;
+    video.playbackRate = state.videoPlaybackRate;
+    video.defaultPlaybackRate = state.videoPlaybackRate;
+    if ('preservesPitch' in video) video.preservesPitch = false;
+
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error('No se pudo leer el archivo de vídeo'));
+    });
+
+    await video.play();
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+
+    canvas = $('video-canvas');
+    canvas.width  = vw;
+    canvas.height = vh;
+    ctx = canvas.getContext('2d');
+
+    counter.setFrameSize(vw, vh);
+    state.sessionId = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    state.crossLog  = [];
+    state.videoEndedNotified = false;
+
+    return true;
+  } catch (e) {
+    showAlert(`Error de vídeo: ${e.message}`, 'danger');
+    return false;
+  }
+}
+
 function stopCamera() {
-  if (video && video.srcObject) {
-    video.srcObject.getTracks().forEach(t => t.stop());
-    video.srcObject = null;
+  if (video) {
+    if (video.srcObject) {
+      video.srcObject.getTracks().forEach(t => t.stop());
+      video.srcObject = null;
+    }
+    video.pause();
+    if (video.src) video.removeAttribute('src');
+    video.load();
   }
   video = null;
+
+  if (state.videoObjectUrl) {
+    URL.revokeObjectURL(state.videoObjectUrl);
+    state.videoObjectUrl = null;
+  }
 
   if (ctx) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -223,6 +303,18 @@ async function detectionLoop() {
 
   if (state.paused || !video) {
     requestAnimationFrame(detectionLoop);
+    return;
+  }
+
+  if (state.sourceMode === 'video-file' && video.ended) {
+    state.running = false;
+    state.paused  = false;
+    updateStatusUI('video-ended');
+    if (!state.videoEndedNotified) {
+      showAlert('Vídeo finalizado — conteo completado', 'success', 5000);
+      state.videoEndedNotified = true;
+    }
+    _loopRunning = false;
     return;
   }
 
@@ -268,23 +360,37 @@ async function detectionLoop() {
    ══════════════════════════════════════════════════════════════════════════════ */
 
 function drawAnnotations(ctx, tracked) {
-  const lineX = counter.lineX;
-  const h = canvas.height;
+  const lineX1 = counter.lineX1;
+  const lineY1 = counter.lineY1;
+  const lineX2 = counter.lineX2;
+  const lineY2 = counter.lineY2;
+  const centerX = counter.lineX;
+  const centerY = counter.lineY;
 
   // ── Línea de conteo ────────────────────────────────────────────────
   ctx.beginPath();
-  ctx.moveTo(lineX, 0);
-  ctx.lineTo(lineX, h);
+  ctx.moveTo(lineX1, lineY1);
+  ctx.lineTo(lineX2, lineY2);
   ctx.strokeStyle = '#00ffff';
-  ctx.lineWidth   = 3;
+  ctx.lineWidth   = 4;
   ctx.stroke();
 
+  // Extremos del segmento para referencia visual
+  ctx.fillStyle = '#00ffff';
+  ctx.beginPath();
+  ctx.arc(lineX1, lineY1, 4, 0, Math.PI * 2);
+  ctx.arc(lineX2, lineY2, 4, 0, Math.PI * 2);
+  ctx.fill();
+
   // Flechas de dirección
+  const nx = counter.lineNormalX;
+  const ny = counter.lineNormalY;
+
   ctx.font = 'bold 12px system-ui, sans-serif';
   ctx.fillStyle = '#00ff00';
-  ctx.fillText('→ Entrada', lineX + 6, 18);
+  ctx.fillText('→ Entrada', centerX + nx * 14, centerY + ny * 14);
   ctx.fillStyle = '#ff4444';
-  ctx.fillText('← Salida', lineX - 75, 38);
+  ctx.fillText('← Salida', centerX - nx * 78, centerY - ny * 14);
 
   // ── Detecciones ────────────────────────────────────────────────────
   for (const det of tracked) {
@@ -350,6 +456,27 @@ function updateUI() {
   const fpsEl = $('fps-badge');
   if (fpsEl) fpsEl.textContent = `${state.fps} fps`;
 
+  // Fuente actual
+  const sourceBadge = $('video-source-badge');
+  if (sourceBadge) {
+    const isVideo = state.sourceMode === 'video-file';
+    sourceBadge.textContent = isVideo ? '📁 Vídeo local' : '📷 Cámara';
+    sourceBadge.className = isVideo ? 'badge badge-warning no-dot' : 'badge badge-glass no-dot';
+  }
+
+  // Progreso en archivo de vídeo
+  const progressWrap = $('video-progress-wrap');
+  const progressBar = $('video-progress-bar');
+  const progressLabel = $('video-progress-label');
+  if (state.sourceMode === 'video-file' && video && Number.isFinite(video.duration) && video.duration > 0) {
+    show(progressWrap);
+    const pct = Math.max(0, Math.min(100, Math.round((video.currentTime / video.duration) * 100)));
+    if (progressBar) progressBar.style.width = `${pct}%`;
+    if (progressLabel) progressLabel.textContent = `${pct}%`;
+  } else {
+    hide(progressWrap);
+  }
+
   // Contadores por categoría
   let totalIn = 0, totalOut = 0;
 
@@ -388,6 +515,30 @@ function updateUI() {
   if (slider && !slider.matches(':active')) {
     slider.value = Math.round(counter.linePos * 100);
   }
+
+  const sliderY = $('line-y-slider');
+  if (sliderY && !sliderY.matches(':active')) {
+    sliderY.value = Math.round(counter.lineYPos * 100);
+  }
+
+  const sliderHeight = $('line-height-slider');
+  if (sliderHeight && !sliderHeight.matches(':active')) {
+    sliderHeight.value = Math.round(counter.lineHeightRel * 100);
+  }
+
+  const sliderAngle = $('line-angle-slider');
+  if (sliderAngle && !sliderAngle.matches(':active')) {
+    sliderAngle.value = Math.round(counter.lineAngleDeg);
+  }
+
+  const lineVal = $('line-val');
+  const lineYVal = $('line-y-val');
+  const lineHeightVal = $('line-height-val');
+  const lineAngleVal = $('line-angle-val');
+  if (lineVal) lineVal.textContent = `${Math.round(counter.linePos * 100)}%`;
+  if (lineYVal) lineYVal.textContent = `${Math.round(counter.lineYPos * 100)}%`;
+  if (lineHeightVal) lineHeightVal.textContent = `${Math.round(counter.lineHeightRel * 100)}%`;
+  if (lineAngleVal) lineAngleVal.textContent = `${Math.round(counter.lineAngleDeg)}°`;
 }
 
 function updateStatusUI(status) {
@@ -410,6 +561,12 @@ function updateStatusUI(status) {
     btnStop.disabled  = false;
     btnPause.textContent = '▶ Reanudar';
     if (badge) { badge.textContent = 'Pausado'; badge.className = 'badge badge-warning no-dot'; }
+  } else if (status === 'video-ended') {
+    btnStart.disabled = false;
+    btnPause.disabled = true;
+    btnStop.disabled  = false;
+    btnPause.textContent = '⏸ Pausar';
+    if (badge) { badge.textContent = 'Vídeo terminado'; badge.className = 'badge badge-success no-dot'; }
   } else {
     btnStart.disabled = false;
     btnPause.disabled = true;
@@ -443,12 +600,14 @@ function updateTable(counts) {
 async function startCounting() {
   if (state.running) return;
 
-  showAlert('Iniciando cámara…', 'info', 2000);
-  const ok = await startCamera();
+  const isVideo = state.sourceMode === 'video-file';
+  showAlert(isVideo ? 'Iniciando análisis de vídeo…' : 'Iniciando cámara…', 'info', 2000);
+  const ok = isVideo ? await startVideoFile() : await startCamera();
   if (!ok) return;
 
   state.running = true;
   state.paused  = false;
+  state.videoEndedNotified = false;
   updateStatusUI('running');
 
   // Mostrar sección de vídeo
@@ -466,6 +625,7 @@ function pauseCounting() {
 function stopCounting() {
   state.running = false;
   state.paused  = false;
+  state.videoEndedNotified = false;
   stopCamera();
   updateStatusUI('stopped');
 }
@@ -490,7 +650,176 @@ function onLineSlider(value) {
   clearTimeout(_lineDebounce);
   _lineDebounce = setTimeout(() => {
     counter.setLinePosition(pos);
+    redrawIdlePreviewWithSegment();
   }, 50);
+}
+
+function onLineYSlider(value) {
+  const pos = parseInt(value, 10) / 100;
+  $('line-y-val').textContent = value + '%';
+  clearTimeout(_lineDebounce);
+  _lineDebounce = setTimeout(() => {
+    counter.setLineYPosition(pos);
+    redrawIdlePreviewWithSegment();
+  }, 50);
+}
+
+function onLineHeightSlider(value) {
+  const h = parseInt(value, 10) / 100;
+  $('line-height-val').textContent = value + '%';
+  clearTimeout(_lineDebounce);
+  _lineDebounce = setTimeout(() => {
+    counter.setLineHeight(h);
+    redrawIdlePreviewWithSegment();
+  }, 50);
+}
+
+function onLineAngleSlider(value) {
+  const angle = parseInt(value, 10);
+  $('line-angle-val').textContent = `${value}°`;
+  clearTimeout(_lineDebounce);
+  _lineDebounce = setTimeout(() => {
+    counter.setLineAngle(angle);
+    redrawIdlePreviewWithSegment();
+  }, 50);
+}
+
+function onVideoSpeedChange(value) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return;
+
+  const speed = Math.max(0.5, Math.min(4, parsed));
+  state.videoPlaybackRate = speed;
+
+  if (video && state.sourceMode === 'video-file' && !video.srcObject) {
+    video.playbackRate = speed;
+    video.defaultPlaybackRate = speed;
+    if ('preservesPitch' in video) video.preservesPitch = false;
+  }
+}
+
+function redrawIdlePreviewWithSegment() {
+  if (state.running) return;
+  if (!state.previewFrameCanvas || !ctx || !canvas) return;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(state.previewFrameCanvas, 0, 0, canvas.width, canvas.height);
+  drawAnnotations(ctx, []);
+  updateUI();
+}
+
+function onSourceChange() {
+  const source = $('camera-select')?.value || 'environment';
+  const fileWrap = $('video-file-wrap');
+  const speedSelect = $('video-speed-select');
+  state.sourceMode = source === 'video-file' ? 'video-file' : 'camera';
+
+  if (speedSelect && !speedSelect.matches(':focus')) {
+    speedSelect.value = String(state.videoPlaybackRate);
+  }
+
+  if (state.sourceMode === 'video-file') {
+    show(fileWrap);
+    if (state.selectedVideoFile) {
+      renderVideoFirstFramePreview(state.selectedVideoFile)
+        .catch((e) => showAlert(`No se pudo actualizar vista previa: ${e.message}`, 'warning', 2500));
+    }
+  } else {
+    hide(fileWrap);
+  }
+  updateUI();
+}
+
+async function renderVideoFirstFramePreview(file) {
+  if (!file) return;
+
+  const previewUrl = URL.createObjectURL(file);
+  const previewVideo = document.createElement('video');
+  previewVideo.src = previewUrl;
+  previewVideo.preload = 'auto';
+  previewVideo.playsInline = true;
+  previewVideo.muted = true;
+  previewVideo.currentTime = 0;
+
+  try {
+    previewVideo.load();
+
+    await new Promise((resolve, reject) => {
+      previewVideo.onloadedmetadata = () => resolve();
+      previewVideo.onerror = () => reject(new Error('No se pudo cargar metadatos del vídeo'));
+    });
+
+    await new Promise((resolve, reject) => {
+      const onReady = () => resolve();
+      const onErr = () => reject(new Error('No se pudo decodificar el primer frame'));
+      previewVideo.onloadeddata = onReady;
+      previewVideo.onseeked = onReady;
+      previewVideo.onerror = onErr;
+
+      try {
+        previewVideo.currentTime = Math.min(0.001, Number.isFinite(previewVideo.duration) ? previewVideo.duration : 0.001);
+      } catch {
+        // Algunos navegadores bloquean seek temprano; loadeddata resolverá igual
+      }
+    });
+
+    const vw = previewVideo.videoWidth || 640;
+    const vh = previewVideo.videoHeight || 480;
+
+    canvas = $('video-canvas');
+    if (!canvas) return;
+    canvas.width = vw;
+    canvas.height = vh;
+    ctx = canvas.getContext('2d');
+
+    if (counter?.setFrameSize) counter.setFrameSize(vw, vh);
+    show($('video-section'));
+
+    if (ctx) {
+      if (!state.previewFrameCanvas) {
+        state.previewFrameCanvas = document.createElement('canvas');
+      }
+      state.previewFrameCanvas.width = canvas.width;
+      state.previewFrameCanvas.height = canvas.height;
+      const previewCtx = state.previewFrameCanvas.getContext('2d');
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(previewVideo, 0, 0, canvas.width, canvas.height);
+      if (previewCtx) {
+        previewCtx.clearRect(0, 0, state.previewFrameCanvas.width, state.previewFrameCanvas.height);
+        previewCtx.drawImage(previewVideo, 0, 0, state.previewFrameCanvas.width, state.previewFrameCanvas.height);
+      }
+      if (counter) drawAnnotations(ctx, []);
+      updateUI();
+    }
+  } finally {
+    previewVideo.pause();
+    previewVideo.removeAttribute('src');
+    previewVideo.load();
+    URL.revokeObjectURL(previewUrl);
+  }
+}
+
+async function onVideoFileSelected(event) {
+  const file = event?.target?.files?.[0] || null;
+  state.selectedVideoFile = file;
+  state.videoEndedNotified = false;
+
+  const info = $('video-file-info');
+  const name = $('video-file-name');
+  if (file) {
+    if (name) name.textContent = `${file.name} (${Math.round(file.size / 1024 / 1024 * 10) / 10} MB)`;
+    show(info);
+    try {
+      await renderVideoFirstFramePreview(file);
+      showAlert('Primer frame cargado: ajusta la línea y luego inicia', 'info', 2600);
+    } catch (e) {
+      showAlert(`No se pudo mostrar el primer frame: ${e.message}`, 'warning', 3500);
+    }
+  } else {
+    state.previewFrameCanvas = null;
+    hide(info);
+  }
 }
 
 
@@ -753,4 +1082,10 @@ function bindEvents() {
   $('btn-theme')?.addEventListener('click', toggleTheme);
 
   $('line-slider')?.addEventListener('input', (e) => onLineSlider(e.target.value));
+  $('line-y-slider')?.addEventListener('input', (e) => onLineYSlider(e.target.value));
+  $('line-height-slider')?.addEventListener('input', (e) => onLineHeightSlider(e.target.value));
+  $('line-angle-slider')?.addEventListener('input', (e) => onLineAngleSlider(e.target.value));
+  $('video-speed-select')?.addEventListener('change', (e) => onVideoSpeedChange(e.target.value));
+  $('camera-select')?.addEventListener('change', onSourceChange);
+  $('video-file-input')?.addEventListener('change', onVideoFileSelected);
 }

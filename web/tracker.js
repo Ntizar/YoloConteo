@@ -17,7 +17,7 @@ class Track {
     this.detection = detection;
     this.age       = 0;           // Frames sin match
     this.totalAge  = 0;           // Frames total de vida
-    this.history   = [detection.center[0]];  // Historial de posición X (para conteo)
+    this.history   = [[detection.center[0], detection.center[1]]];  // Historial de centros (x, y)
   }
 
   /** Actualiza el track con una nueva detección emparejada */
@@ -25,7 +25,7 @@ class Track {
     this.detection = detection;
     this.age       = 0;
     this.totalAge++;
-    this.history.push(detection.center[0]);
+    this.history.push([detection.center[0], detection.center[1]]);
     if (this.history.length > 60) this.history = this.history.slice(-60);
   }
 }
