@@ -20,6 +20,7 @@ const state = {
   selectedVideoFile: null,
   videoObjectUrl: null,
   videoEndedNotified: false,
+  videoPlaybackRate: 1,
   previewFrameCanvas: null,
   location: { name: '', lat: null, lng: null },
   sessionId: '',
@@ -232,6 +233,9 @@ async function startVideoFile() {
     video.autoplay = false;
     video.playsInline = true;
     video.muted = true;
+    video.playbackRate = state.videoPlaybackRate;
+    video.defaultPlaybackRate = state.videoPlaybackRate;
+    if ('preservesPitch' in video) video.preservesPitch = false;
 
     await new Promise((resolve, reject) => {
       video.onloadedmetadata = () => resolve();
@@ -680,6 +684,20 @@ function onLineAngleSlider(value) {
   }, 50);
 }
 
+function onVideoSpeedChange(value) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return;
+
+  const speed = Math.max(0.5, Math.min(4, parsed));
+  state.videoPlaybackRate = speed;
+
+  if (video && state.sourceMode === 'video-file' && !video.srcObject) {
+    video.playbackRate = speed;
+    video.defaultPlaybackRate = speed;
+    if ('preservesPitch' in video) video.preservesPitch = false;
+  }
+}
+
 function redrawIdlePreviewWithSegment() {
   if (state.running) return;
   if (!state.previewFrameCanvas || !ctx || !canvas) return;
@@ -693,7 +711,13 @@ function redrawIdlePreviewWithSegment() {
 function onSourceChange() {
   const source = $('camera-select')?.value || 'environment';
   const fileWrap = $('video-file-wrap');
+  const speedSelect = $('video-speed-select');
   state.sourceMode = source === 'video-file' ? 'video-file' : 'camera';
+
+  if (speedSelect && !speedSelect.matches(':focus')) {
+    speedSelect.value = String(state.videoPlaybackRate);
+  }
+
   if (state.sourceMode === 'video-file') {
     show(fileWrap);
     if (state.selectedVideoFile) {
@@ -1061,6 +1085,7 @@ function bindEvents() {
   $('line-y-slider')?.addEventListener('input', (e) => onLineYSlider(e.target.value));
   $('line-height-slider')?.addEventListener('input', (e) => onLineHeightSlider(e.target.value));
   $('line-angle-slider')?.addEventListener('input', (e) => onLineAngleSlider(e.target.value));
+  $('video-speed-select')?.addEventListener('change', (e) => onVideoSpeedChange(e.target.value));
   $('camera-select')?.addEventListener('change', onSourceChange);
   $('video-file-input')?.addEventListener('change', onVideoFileSelected);
 }
