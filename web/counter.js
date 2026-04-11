@@ -2,9 +2,9 @@
  * counter.js — Contador bidireccional de cruce de línea
  *
  * Port directo de la lógica Python (counter.py) a JavaScript.
- * Detecta cuándo un objeto cruza la línea vertical:
- *   - Izquierda → Derecha = "in"  (Entrada)
- *   - Derecha → Izquierda = "out" (Salida)
+ * Detecta cuándo un objeto cruza un segmento orientable:
+ *   - Lado negativo → positivo = "in"  (Entrada)
+ *   - Lado positivo → negativo = "out" (Salida)
  */
 
 'use strict';
@@ -16,23 +16,33 @@ const CATEGORY_KEYS = ['persons', 'bicycles', 'cars', 'motorcycles', 'buses', 't
 class Counter {
   /**
    * @param {Object}   opts
-   * @param {number}   opts.linePosition  Posición relativa X de la línea (0.0 – 1.0)
+   * @param {number}   opts.linePosition  Posición relativa X del centro de línea (0.0 – 1.0)
    * @param {number}   opts.lineYPosition Posición relativa Y del centro de segmento (0.0 – 1.0)
-   * @param {number}   opts.lineHeight    Altura relativa del segmento (0.0 – 1.0)
+   * @param {number}   opts.lineHeight    Longitud relativa del segmento (0.0 – 1.0)
+   * @param {number}   opts.lineAngle     Ángulo en grados (0 = vertical)
    * @param {number}   opts.margin        Píxeles de margen para resetear la bandera de cruce
    * @param {Function} opts.onCross       Callback(categoria, direction, trackId)
    */
-  constructor({ linePosition = 0.5, lineYPosition = 0.5, lineHeight = 1.0, margin = 30, onCross = null } = {}) {
+  constructor({ linePosition = 0.5, lineYPosition = 0.5, lineHeight = 1.0, lineAngle = 0, margin = 30, onCross = null } = {}) {
     this.linePos     = linePosition;
     this.lineYPos    = lineYPosition;
     this.lineHeightRel = lineHeight;
+    this.lineAngleDeg = lineAngle;
     this.margin      = margin;
     this.onCross     = onCross;
     this.frameWidth  = 640;
     this.frameHeight = 480;
     this.lineX       = Math.round(this.frameWidth * this.linePos);
     this.lineY       = Math.round(this.frameHeight * this.lineYPos);
-    this.lineHeightPx = Math.round(this.frameHeight * this.lineHeightRel);
+    this.lineLengthPx = Math.round(this.frameHeight * this.lineHeightRel);
+    this.lineDirX = 0;
+    this.lineDirY = 1;
+    this.lineNormalX = 1;
+    this.lineNormalY = 0;
+    this.lineX1 = this.lineX;
+    this.lineY1 = 0;
+    this.lineX2 = this.lineX;
+    this.lineY2 = this.frameHeight;
     this.lineTop     = 0;
     this.lineBottom  = this.frameHeight;
     this._recomputeLineSegment();
@@ -51,14 +61,13 @@ class Counter {
   setFrameSize(w, h) {
     this.frameWidth  = w;
     this.frameHeight = h;
-    this.lineX       = Math.round(w * this.linePos);
     this._recomputeLineSegment();
   }
 
   /** Actualiza posición relativa de la línea (0.02 – 0.98) */
   setLinePosition(pos) {
     this.linePos = Math.max(0.02, Math.min(0.98, pos));
-    this.lineX   = Math.round(this.frameWidth * this.linePos);
+    this._recomputeLineSegment();
   }
 
   /** Actualiza posición vertical relativa del centro del segmento (0.02 – 0.98) */
@@ -73,30 +82,53 @@ class Counter {
     this._recomputeLineSegment();
   }
 
+  /** Actualiza ángulo del segmento en grados (-89 – 89, 0 = vertical) */
+  setLineAngle(angleDeg) {
+    this.lineAngleDeg = Math.max(-89, Math.min(89, angleDeg));
+    this._recomputeLineSegment();
+  }
+
   _recomputeLineSegment() {
+    this.lineX = Math.round(this.frameWidth * this.linePos);
     this.lineY = Math.round(this.frameHeight * this.lineYPos);
-    this.lineHeightPx = Math.round(this.frameHeight * this.lineHeightRel);
+    this.lineLengthPx = Math.round(this.frameHeight * this.lineHeightRel);
 
-    const half = Math.round(this.lineHeightPx / 2);
-    this.lineTop = Math.max(0, this.lineY - half);
-    this.lineBottom = Math.min(this.frameHeight, this.lineY + half);
+    const rad = (this.lineAngleDeg * Math.PI) / 180;
+    this.lineDirX = Math.sin(rad);
+    this.lineDirY = Math.cos(rad);
 
-    // Ajustar para mantener altura lo más cercana posible cuando toca bordes
-    const currentHeight = this.lineBottom - this.lineTop;
-    if (currentHeight < this.lineHeightPx && this.frameHeight >= this.lineHeightPx) {
-      if (this.lineTop === 0) {
-        this.lineBottom = this.lineHeightPx;
-      } else if (this.lineBottom === this.frameHeight) {
-        this.lineTop = this.frameHeight - this.lineHeightPx;
-      }
-    }
+    // Normal para determinar lado de cruce. Con ángulo 0 queda: dist = x - lineX.
+    this.lineNormalX = this.lineDirY;
+    this.lineNormalY = -this.lineDirX;
+
+    const half = this.lineLengthPx / 2;
+    this.lineX1 = this.lineX - this.lineDirX * half;
+    this.lineY1 = this.lineY - this.lineDirY * half;
+    this.lineX2 = this.lineX + this.lineDirX * half;
+    this.lineY2 = this.lineY + this.lineDirY * half;
+
+    // Compatibilidad para cualquier uso legado del tramo vertical
+    this.lineTop = Math.max(0, Math.min(this.frameHeight, Math.round(Math.min(this.lineY1, this.lineY2))));
+    this.lineBottom = Math.max(0, Math.min(this.frameHeight, Math.round(Math.max(this.lineY1, this.lineY2))));
+  }
+
+  _signedDistanceToLine(point) {
+    const dx = point[0] - this.lineX;
+    const dy = point[1] - this.lineY;
+    return dx * this.lineNormalX + dy * this.lineNormalY;
+  }
+
+  _lineProjection(point) {
+    const dx = point[0] - this.lineX;
+    const dy = point[1] - this.lineY;
+    return dx * this.lineDirX + dy * this.lineDirY;
   }
 
   /* ── Procesamiento ──────────────────────────────────────────────────── */
 
   /**
    * Procesa detecciones con tracking.
-   * Cada item debe tener: trackId, categoria, history (array de posiciones X)
+    * Cada item debe tener: trackId, categoria, history (array de centros [x, y])
    * @param {Array<Object>} trackedDetections
    */
   process(trackedDetections) {
@@ -117,26 +149,42 @@ class Counter {
 
       // Comprobar cruce con al menos 2 puntos de historial
       if (history && history.length >= 2) {
-        const prevX = history[history.length - 2];
-        const currX = history[history.length - 1];
-        const centerY = det.center?.[1];
-        const insideSegment = Number.isFinite(centerY)
-          && centerY >= this.lineTop
-          && centerY <= this.lineBottom;
+        const prevRaw = history[history.length - 2];
+        const currRaw = history[history.length - 1];
 
-        if (prevX < this.lineX && currX >= this.lineX && state.canCross && insideSegment) {
-          // Izquierda → Derecha = Entrada
+        const prev = Array.isArray(prevRaw)
+          ? prevRaw
+          : [prevRaw, Number.isFinite(det.center?.[1]) ? det.center[1] : this.lineY];
+        const curr = Array.isArray(currRaw)
+          ? currRaw
+          : [currRaw, Number.isFinite(det.center?.[1]) ? det.center[1] : this.lineY];
+
+        const prevDist = this._signedDistanceToLine(prev);
+        const currDist = this._signedDistanceToLine(curr);
+        const prevProj = this._lineProjection(prev);
+        const currProj = this._lineProjection(curr);
+
+        const halfLen = this.lineLengthPx / 2;
+        const midProj = (prevProj + currProj) / 2;
+        const insideSegment = Math.abs(prevProj) <= halfLen
+          || Math.abs(currProj) <= halfLen
+          || Math.abs(midProj) <= halfLen;
+
+        const eps = 1.5;
+
+        if (prevDist < -eps && currDist >= eps && state.canCross && insideSegment) {
+          // Lado negativo → lado positivo = Entrada
           this.counts[categoria].in++;
           state.canCross = false;
           if (this.onCross) this.onCross(categoria, 'in', trackId);
 
-        } else if (prevX > this.lineX && currX <= this.lineX && state.canCross && insideSegment) {
-          // Derecha → Izquierda = Salida
+        } else if (prevDist > eps && currDist <= -eps && state.canCross && insideSegment) {
+          // Lado positivo → lado negativo = Salida
           this.counts[categoria].out++;
           state.canCross = false;
           if (this.onCross) this.onCross(categoria, 'out', trackId);
 
-        } else if (Math.abs(currX - this.lineX) > this.margin) {
+        } else if (Math.abs(currDist) > this.margin) {
           // Se alejó de la línea → puede volver a cruzar
           state.canCross = true;
         }

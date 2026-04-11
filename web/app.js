@@ -356,34 +356,37 @@ async function detectionLoop() {
    ══════════════════════════════════════════════════════════════════════════════ */
 
 function drawAnnotations(ctx, tracked) {
-  const lineX = counter.lineX;
-  const lineTop = counter.lineTop;
-  const lineBottom = counter.lineBottom;
+  const lineX1 = counter.lineX1;
+  const lineY1 = counter.lineY1;
+  const lineX2 = counter.lineX2;
+  const lineY2 = counter.lineY2;
+  const centerX = counter.lineX;
+  const centerY = counter.lineY;
 
   // ── Línea de conteo ────────────────────────────────────────────────
   ctx.beginPath();
-  ctx.moveTo(lineX, lineTop);
-  ctx.lineTo(lineX, lineBottom);
+  ctx.moveTo(lineX1, lineY1);
+  ctx.lineTo(lineX2, lineY2);
   ctx.strokeStyle = '#00ffff';
   ctx.lineWidth   = 4;
   ctx.stroke();
 
   // Extremos del segmento para referencia visual
-  ctx.strokeStyle = '#00ffff';
-  ctx.lineWidth = 2;
+  ctx.fillStyle = '#00ffff';
   ctx.beginPath();
-  ctx.moveTo(lineX - 10, lineTop);
-  ctx.lineTo(lineX + 10, lineTop);
-  ctx.moveTo(lineX - 10, lineBottom);
-  ctx.lineTo(lineX + 10, lineBottom);
-  ctx.stroke();
+  ctx.arc(lineX1, lineY1, 4, 0, Math.PI * 2);
+  ctx.arc(lineX2, lineY2, 4, 0, Math.PI * 2);
+  ctx.fill();
 
   // Flechas de dirección
+  const nx = counter.lineNormalX;
+  const ny = counter.lineNormalY;
+
   ctx.font = 'bold 12px system-ui, sans-serif';
   ctx.fillStyle = '#00ff00';
-  ctx.fillText('→ Entrada', lineX + 8, Math.max(16, lineTop - 6));
+  ctx.fillText('→ Entrada', centerX + nx * 14, centerY + ny * 14);
   ctx.fillStyle = '#ff4444';
-  ctx.fillText('← Salida', lineX - 80, Math.max(32, lineTop + 14));
+  ctx.fillText('← Salida', centerX - nx * 78, centerY - ny * 14);
 
   // ── Detecciones ────────────────────────────────────────────────────
   for (const det of tracked) {
@@ -519,12 +522,19 @@ function updateUI() {
     sliderHeight.value = Math.round(counter.lineHeightRel * 100);
   }
 
+  const sliderAngle = $('line-angle-slider');
+  if (sliderAngle && !sliderAngle.matches(':active')) {
+    sliderAngle.value = Math.round(counter.lineAngleDeg);
+  }
+
   const lineVal = $('line-val');
   const lineYVal = $('line-y-val');
   const lineHeightVal = $('line-height-val');
+  const lineAngleVal = $('line-angle-val');
   if (lineVal) lineVal.textContent = `${Math.round(counter.linePos * 100)}%`;
   if (lineYVal) lineYVal.textContent = `${Math.round(counter.lineYPos * 100)}%`;
   if (lineHeightVal) lineHeightVal.textContent = `${Math.round(counter.lineHeightRel * 100)}%`;
+  if (lineAngleVal) lineAngleVal.textContent = `${Math.round(counter.lineAngleDeg)}°`;
 }
 
 function updateStatusUI(status) {
@@ -656,6 +666,16 @@ function onLineHeightSlider(value) {
   clearTimeout(_lineDebounce);
   _lineDebounce = setTimeout(() => {
     counter.setLineHeight(h);
+    redrawIdlePreviewWithSegment();
+  }, 50);
+}
+
+function onLineAngleSlider(value) {
+  const angle = parseInt(value, 10);
+  $('line-angle-val').textContent = `${value}°`;
+  clearTimeout(_lineDebounce);
+  _lineDebounce = setTimeout(() => {
+    counter.setLineAngle(angle);
     redrawIdlePreviewWithSegment();
   }, 50);
 }
@@ -1040,6 +1060,7 @@ function bindEvents() {
   $('line-slider')?.addEventListener('input', (e) => onLineSlider(e.target.value));
   $('line-y-slider')?.addEventListener('input', (e) => onLineYSlider(e.target.value));
   $('line-height-slider')?.addEventListener('input', (e) => onLineHeightSlider(e.target.value));
+  $('line-angle-slider')?.addEventListener('input', (e) => onLineAngleSlider(e.target.value));
   $('camera-select')?.addEventListener('change', onSourceChange);
   $('video-file-input')?.addEventListener('change', onVideoFileSelected);
 }
